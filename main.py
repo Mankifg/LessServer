@@ -8,12 +8,13 @@ import functions
 import game_utils
 
 
-app = FastAPI()
+import asyncio
+from websockets.asyncio.server import serve
 
-from starlette.middleware.cors import CORSMiddleware
+import logging 
 
 
-origins = ["*"]
+'''origins = ["*"]
 # https://fastapi.tiangolo.com/tutorial/cors/#use-corsmiddleware
 app.add_middleware(
     CORSMiddleware,
@@ -21,7 +22,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-)
+)'''
+
 
 BASE_URL = "https://less.palcka.si"
 START_POS = "bb4/bb4/6/6/4ww/4ww"
@@ -30,22 +32,19 @@ START_POS = "bb4/bb4/6/6/4ww/4ww"
 START_COLOR = "w"
 START_MOVE_POWER = 3
 
-print(START_POS)
-
 player_color = "w"
 
 global games
 games = {}
 
-
-@app.get("/")
-async def root():
-    return {"info": "Mankifg's fastapi server"}
-
-
-@app.get("/new_game")
-async def new_game():
-
+async def start_game(websocket,msg):
+    #? create new game
+    """
+    {
+        "type": "create,
+        // "ident":uuid 
+    }
+    """
     #! white_key = game_utils.new_uuid()
     #! black_key = game_utils.new_uuid()
 
@@ -67,48 +66,74 @@ async def new_game():
 
     print(games)
 
+    """
     for i, v in functions.get_wall_moves(b10_board):
         print(game_utils.from_arry_notation(i), v)
     print("a")
 
     for i, v in functions.cost_of_moves(START_POS, b10_board, player_color):
         print(game_utils.from_arry_notation(i), v)
-
-    return {
+    """
+    
+    await websocket.send(json.dumps(
+    {
+        "error":False,
         "game_id": game_id,
         "game_end": False,
-        "board": b10_board,
-        "lbp": START_POS,
-        "move_power": START_MOVE_POWER,
-        "player_color": START_COLOR,
+        "game":[b10_board,START_POS,START_COLOR,START_MOVE_POWER],
+         
         "you": "w",
         "ident": white_key,
-    }
+    }))
+    
+    
+      
 
-
-@app.get("/join_game")
-async def join_game(game_id=None):
+async def join_game(websocket,msg):
 
     game_id = str(game_id)
     if not game_id in games.keys():
         return {"s": False, "game_end": False, "code": "game_id is not found"}
 
     game_obj = games[game_id]["game"]
-    b10_board, lbp, player_color, move_power = game_obj
     black_key = games[game_id]["black_key"]
-    print("blak")
 
-    return {
-        "s": True,
+    await websocket.send(json.dumps(
+        {
+        "error":False,
         "game_id": game_id,
         "game_end": False,  # todo this shuld be fiixed
-        "board": b10_board,
-        "lbp": lbp,
-        "move_power": move_power,
-        "player_color": player_color,
+        "game": game_obj,
+    
         "your": "b",
         "ident": black_key,
-    }
+    }    ))
+
+
+async def handler(websocket):
+    async for message in websocket:
+        logging.log("Recived:",message)
+        
+        try:
+            msg_obj = json.loads(message)
+        except AttributeError: # not a valid json
+            logging.error("Recived not a json obj",message)
+            return 0
+        
+        if msg_obj.get("type", None) is None:
+            websocket.send(json.dumps({"error":True,"message":"Type of message not specified."}))
+            logging.error()
+            return
+        
+        if msg_obj["type"] == "create":
+            await start_game(websocket,msg_obj)
+        
+        elif msg_obj["type"] == "join":
+            await join_game(websocket,msg_obj)
+            
+            
+"""            
+    
 
 
 @app.get("/game")
@@ -249,3 +274,13 @@ async def make_move(move=None, game_id=None, ident=None):
         "move_power": move_power,
         "to_move": player_color,
     }
+"""
+async def main():
+    async with serve(handler, "localhost", 8001) as server:
+        print(1)
+        await server.serve_forever()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
