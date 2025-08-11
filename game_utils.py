@@ -7,7 +7,7 @@ FILES = "abcdef"
 BASE_URL = "https://less.palcka.si"
 
 
-def from_coord_notation(coord_not):
+def from_algebric(coord_not):
     if len(coord_not) != 4:
         return False, "Len != 4"
 
@@ -50,7 +50,9 @@ BOTTOM_RIGHT = "b"
 START_POS = "bb4/bb4/6/6/4ww/4ww"
 
 
-def is_win(lbp):
+def game_over(packaged_game):
+    board,lbp,to_move, move_power = packaged_game
+    
     if lbp[0:2] + lbp[4:6] == UP_LEFT * 4:
         return True, 1
     if lbp[-2:] + lbp[-6:-4] == BOTTOM_RIGHT * 4:

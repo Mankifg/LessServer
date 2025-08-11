@@ -387,12 +387,12 @@ def singe_move_cost(walls, move):
     return 0
 
 
-def exatct(walls, move):
+def extract(walls, move):
     for m, cost in walls:
         # print(m,cost)
         if m == move:  # or start_end_flip(m) == move:
             return cost
-    return 0
+    return -1
 
 
 def cost_of_moves(current_pos, b10_board, color):

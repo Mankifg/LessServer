@@ -37,6 +37,8 @@ player_color = "w"
 global games
 games = {}
 
+avalible_games = {}
+
 async def generate_update_msg(packaged_game:list) -> dict:
     board, pos, color_to_move, move_power = packaged_game
     return {
@@ -47,10 +49,42 @@ async def generate_update_msg(packaged_game:list) -> dict:
         "move_power":move_power,
     }
 
+async def execute_move(packaged_game:list,event:json)-> bool | list:
+    move = event["move"]
+  
+    succes, move_ary = game_utils.from_algebric(move)
+
+    if not succes:
+        return succes,"Wrong algebric move notation"
 
 
-async def execute_move(move,game):
-    return True,1
+    b10_board, lbp, player_color, move_power = packaged_game
+
+    color_legal_cost = functions.cost_of_moves(lbp, b10_board, player_color)
+    print(lbp, b10_board, player_color)
+    cost = functions.extract(color_legal_cost, move_ary)
+    print(cost)
+
+    print(games)
+
+    if cost == -1:
+        return False,"Invalid move"
+    
+    if cost > move_power:
+        return False,"Move unavailable (Move costs more than you have avalible)."
+
+    lbp = functions.push_move(lbp, move_ary)
+    move_power = move_power - cost
+    if move_power == 0:
+        player_color = game_utils.swap_players(player_color)
+        move_power = 3
+
+        
+    print("played", game_utils.from_arry_notation(move_ary), cost, move_power)
+    
+    packaged_game = b10_board,lbp,player_color,move_power
+    
+    return True,packaged_game
 
 async def error(websocket,message):
     event = {
@@ -58,10 +92,6 @@ async def error(websocket,message):
         "message":message
     }
     await websocket.send(json.dumps(event))
-
-async def game_over(packaged_game):
-    return False
- 
 
 async def replay(connected,packaged_game):
     print("sending starting data to both")
@@ -73,34 +103,34 @@ async def replay(connected,packaged_game):
         "to_move":color_to_move,
         "move_power":move_power,
     }
-    
     broadcast(connected,json.dumps(event))
 
-    
-
-async def play(websocket,packaged_game,connected):
+async def play(websocket,packaged_game,player,connected):
     async for message in websocket:
         event = json.loads(message)
         
         if (event["type"] != "play"):
             print(f"something is wrong, servers wanted to recive play package, but it got {event}")
+            return
         
         print(">",event)
         
-        legal,resp = execute_move(packaged_game,event)
+        legal,packaged_game = execute_move(packaged_game,event)
         
         if not legal:
-            error(websocket,"move not legal")
+            error(websocket,packaged_game)
 
         event = generate_update_msg(packaged_game)
         
         broadcast(connected,json.dumps(event))
         
-        if (game_over(packaged_game)):
+        game_over, winner = game_utils.game_over(packaged_game)
         
+        if (game_over):
             event = {
                 "type":"win",
-                "player":1,}
+                "player":winner,
+            }
         
             broadcast(connected,json.dumps(event))
             
@@ -114,9 +144,6 @@ async def start_game(websocket):
     #! white_key = game_utils.new_uuid()
     #! black_key = game_utils.new_uuid()
 
-    white_key = "woite"
-    black_key = "bluck"
-
     connected = {websocket}
 
     b10_board = game_utils.new_b10_board()
@@ -126,6 +153,7 @@ async def start_game(websocket):
     games[game_id] = packaged_game,connected
     
     try:
+        print(f"Starting game with id {game_id}, and sending to p1")
         event  = {
             "type":"init",
             "join":game_id,
@@ -138,16 +166,7 @@ async def start_game(websocket):
     finally:
         print(f"game with id: {game_id} ended")
         del games[game_id]
-    
-    '''games.update(
-        {
-            game_id: {
-                "game": [b10_board, START_POS, START_COLOR, START_MOVE_POWER],
-                "white_key": white_key,
-                "black_key": black_key,
-            }
-        }
-    )'''
+   
 
     print(f"{games=}")
 
@@ -171,8 +190,6 @@ async def start_game(websocket):
         "ident": white_key,
     }))'''
     
-    
-      
 
 async def join_game(websocket,join_key):
     try:
@@ -245,82 +262,7 @@ async def game(game_id=None):
 
 @app.get("/make_move")
 async def make_move(move=None, game_id=None, ident=None):
-    if ident is None:
-        return {
-            "s": False,
-            "game_end": False,
-            "code": "Identification not suplied",
-        }
-
-    if game_id is None:
-        return {"s": False, "game_end": False, "code": "game_id is not present"}
-
-    game_id = str(game_id)
-    if not game_id in games.keys():
-        return {"s": False, "game_end": False, "code": "game_id is not found"}
-
-    if move is None:
-        return {"s": False, "game_end": False, "code": "move is not present"}
-
-    succes, move_ary = game_utils.from_coord_notation(move)
-
-    if not succes:
-        return {
-            "s": False,
-            "game_end": False,
-            "code": move_ary,
-        }
-
-    print("gameeesss", games)
-
-    game_obj = games[game_id]["game"]
-
-    print("req game obj:", game_obj)
-    # games.update({game_id:[b10_board,START_POS,START_COLOR,START_MOVE_POWER]})
-
-    b10_board, lbp, player_color, move_power = game_obj
-
-    if player_color == "w":
-        corr_key = games[game_id]["white_key"]
-    else:
-        corr_key = games[game_id]["black_key"]
-
-    if not (ident == corr_key):
-        return {
-            "s": False,
-            "game_end": False,
-            "code": "It is not your turn",
-        }
-
-    color_legal_cost = functions.cost_of_moves(lbp, b10_board, player_color)
-    print(lbp, b10_board, player_color)
-    cost = functions.exatct(color_legal_cost, move_ary)
-    print(cost)
-
-    print(games)
-
-    if cost == 0:
-        return {"s": False, "game_end": False, "code": "Invalid move"}
-
-    games[game_id]["game"] = [b10_board, lbp, player_color, move_power]
-
-    if cost > move_power:
-        return {
-            "s": False,
-            "game_end": False,
-            "code": "Move costs more than you hava avalibble",
-        }
-
-    lbp = functions.push_move(lbp, move_ary)
-    move_power = move_power - cost
-    if move_power == 0:
-        player_color = game_utils.swap_players(player_color)
-        move_power = 3
-
-    print("played", game_utils.from_arry_notation(move_ary), cost, move_power)
-    checkForWin, color = game_utils.is_win(lbp)
-    games[game_id]["game"] = [b10_board, lbp, player_color, move_power]
-
+    
     if checkForWin:
         games[game_id]["game"] = [b10_board, lbp, player_color, move_power]
         if color == 1:
