@@ -50,8 +50,13 @@ BOTTOM_RIGHT = "b"
 START_POS = "bb4/bb4/6/6/4ww/4ww"
 
 
-def game_over(packaged_game):
+async def game_over(packaged_game):
     board,lbp,to_move, move_power = packaged_game
+    
+    print("now we nead some game_over logic")
+    print(f"{packaged_game=}")
+    
+    #!!! em, check 
     
     if lbp[0:2] + lbp[4:6] == UP_LEFT * 4:
         return True, 1
@@ -69,7 +74,7 @@ def new_game_id():
 
 
 def new_uuid():
-    return uuid.uuid4()
+    return str(uuid.uuid4())
 
 
 def swap_players(p):

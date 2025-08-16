@@ -40,6 +40,7 @@ games = {}
 avalible_games = {}
 
 async def generate_update_msg(packaged_game:list) -> dict:
+    print(f"recived: {packaged_game=}",)
     board, pos, color_to_move, move_power = packaged_game
     return {
         "type":"update",
@@ -49,7 +50,7 @@ async def generate_update_msg(packaged_game:list) -> dict:
         "move_power":move_power,
     }
 
-async def execute_move(packaged_game:list,event:json)-> bool | list:
+async def execute_move(packaged_game:list,event:dict,user:str)-> bool | list:
     move = event["move"]
   
     succes, move_ary = game_utils.from_algebric(move)
@@ -57,9 +58,14 @@ async def execute_move(packaged_game:list,event:json)-> bool | list:
     if not succes:
         return succes,"Wrong algebric move notation"
 
-
     b10_board, lbp, player_color, move_power = packaged_game
-
+    
+    print("!"*10)
+    print(functions.boardify(lbp)[move_ary[1]][move_ary[0]])
+    print(user)
+    if not (functions.boardify(lbp)[move_ary[1]][move_ary[0]] == user):
+        return False, "No permission for moving this piece"
+    
     color_legal_cost = functions.cost_of_moves(lbp, b10_board, player_color)
     print(lbp, b10_board, player_color)
     cost = functions.extract(color_legal_cost, move_ary)
@@ -76,6 +82,7 @@ async def execute_move(packaged_game:list,event:json)-> bool | list:
     lbp = functions.push_move(lbp, move_ary)
     move_power = move_power - cost
     if move_power == 0:
+        print("swaping users ")
         player_color = game_utils.swap_players(player_color)
         move_power = 3
 
@@ -83,6 +90,7 @@ async def execute_move(packaged_game:list,event:json)-> bool | list:
     print("played", game_utils.from_arry_notation(move_ary), cost, move_power)
     
     packaged_game = b10_board,lbp,player_color,move_power
+    print(f"move completed good, this is {packaged_game=}",)
     
     return True,packaged_game
 
@@ -105,26 +113,46 @@ async def replay(connected,packaged_game):
     }
     broadcast(connected,json.dumps(event))
 
-async def play(websocket,packaged_game,player,connected):
+async def play(websocket,join_key,player,connected):
     async for message in websocket:
+        
+        game_obj = games[join_key]
+        packaged_game = game_obj["game"]
+        
         event = json.loads(message)
         
         if (event["type"] != "play"):
             print(f"something is wrong, servers wanted to recive play package, but it got {event}")
             return
-        
         print(">",event)
         
-        legal,packaged_game = execute_move(packaged_game,event)
+        user = None
+        if event["ident"] == packaged_game["white_ident"]:
+            user = "w"
+        elif event["ident"] == packaged_game["black_ident"]:
+            user = "b" 
+        print("based on ident the user is",user)
+        
+        if user is None:
+            await error(websocket,"No permission for moving this piece")
+            continue
+        
+        
+        legal,pp = await execute_move(packaged_game,event,user)
         
         if not legal:
-            error(websocket,packaged_game)
+            await error(websocket,pp)
+            continue
+        
+        packaged_game = pp
 
-        event = generate_update_msg(packaged_game)
+
+        
+        event = await generate_update_msg(packaged_game)
         
         broadcast(connected,json.dumps(event))
         
-        game_over, winner = game_utils.game_over(packaged_game)
+        game_over, winner =  await game_utils.game_over(packaged_game)
         
         if (game_over):
             event = {
@@ -132,17 +160,13 @@ async def play(websocket,packaged_game,player,connected):
                 "player":winner,
             }
         
-            broadcast(connected,json.dumps(event))
+            await broadcast(connected,json.dumps(event))
             
-        
-        
 
 
 async def start_game(websocket):
     #? create new game
 
-    #! white_key = game_utils.new_uuid()
-    #! black_key = game_utils.new_uuid()
 
     connected = {websocket}
 
@@ -150,18 +174,31 @@ async def start_game(websocket):
     game_id = game_utils.new_game_id()
     packaged_game = b10_board, START_POS, START_COLOR, START_MOVE_POWER
 
-    games[game_id] = packaged_game,connected
+    white_ident = game_utils.new_uuid()
+    black_ident = game_utils.new_uuid()
+    
+    games[game_id] = {
+        "game":packaged_game,
+        "connected":connected,
+        "white_ident":white_ident,
+        "black_ident":black_ident,
+    }
     
     try:
         print(f"Starting game with id {game_id}, and sending to p1")
         event  = {
             "type":"init",
-            "join":game_id,
+            "key":game_id,
         }
-        
         await websocket.send(json.dumps(event))
         
-        await play(websocket,packaged_game,1,connected)
+        event = {
+            "type":"ident",
+            "ident":white_ident,
+        }
+        await websocket.send(json.dumps(event))
+         
+        await play(websocket,games[game_id],1,connected)
 
     finally:
         print(f"game with id: {game_id} ended")
@@ -192,21 +229,31 @@ async def start_game(websocket):
     
 
 async def join_game(websocket,join_key):
+
     try:
-        packaged_game,connected = games[join_key]
+        game_object = games[join_key]
     except KeyError:
         await error(websocket,"game not found")
         print("game with id",join_key,"not found")
         return
     
-    connected.add(websocket)
-    try:
-        await replay(connected,packaged_game)
     
-        await play(websocket,packaged_game,2,connected)
+    black_ident = game_object["black_ident"] 
+    game_object["connected"].add(websocket)
+    try:
+    
+        event = {
+            "type":"ident",
+            "ident":black_ident,
+        }
+        await websocket.send(json.dumps(event))
+         
+        await replay(game_object["connected"],game_object["game"])
+    
+        await play(websocket,join_key,2,game_object["connected"])
     
     finally:
-        connected.remove(websocket)
+        game_object["connected"].remove(websocket)
         
         
     
