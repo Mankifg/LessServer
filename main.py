@@ -115,7 +115,7 @@ async def replay(connected,packaged_game):
 
 async def play(websocket,join_key,player,connected):
     async for message in websocket:
-        
+        print(join_key) 
         game_obj = games[join_key]
         packaged_game = game_obj["game"]
         
