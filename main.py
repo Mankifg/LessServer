@@ -51,6 +51,10 @@ async def generate_update_msg(packaged_game:list) -> dict:
     }
 
 async def execute_move(packaged_game:list,event:dict,user:str)-> bool | list:
+    print("-"*20,"execution of move")
+    print(packaged_game,event,user)
+    print("-"*5,)
+    
     move = event["move"]
   
     succes, move_ary = game_utils.from_algebric(move)
@@ -61,8 +65,11 @@ async def execute_move(packaged_game:list,event:dict,user:str)-> bool | list:
     b10_board, lbp, player_color, move_power = packaged_game
     
     print("!"*10)
+    print("lbp recived:",functions.boardify(lbp))
     print(functions.boardify(lbp)[move_ary[1]][move_ary[0]])
     print(user)
+    print(type(functions.boardify(lbp)[move_ary[1]][move_ary[0]]),type(user))
+    
     if not (functions.boardify(lbp)[move_ary[1]][move_ary[0]] == user):
         return False, "No permission for moving this piece"
     
@@ -89,10 +96,11 @@ async def execute_move(packaged_game:list,event:dict,user:str)-> bool | list:
         
     print("played", game_utils.from_arry_notation(move_ary), cost, move_power)
     
-    packaged_game = b10_board,lbp,player_color,move_power
-    print(f"move completed good, this is {packaged_game=}",)
+    returning = b10_board,lbp,player_color,move_power
+    print("-"*10,f"{returning=}")
+    #print(f"move completed good, this is {returning=}",)
     
-    return True,packaged_game
+    return True,returning
 
 async def error(websocket,message):
     event = {
@@ -113,9 +121,9 @@ async def replay(connected,packaged_game):
     }
     broadcast(connected,json.dumps(event))
 
-async def play(websocket,join_key,player,connected):
+async def play(websocket,join_key,connected):
     async for message in websocket:
-        print(join_key) 
+        print(f"{join_key=}") 
         game_obj = games[join_key]
         packaged_game = game_obj["game"]
         
@@ -127,15 +135,15 @@ async def play(websocket,join_key,player,connected):
         print(">",event)
         
         user = None
-        if event["ident"] == packaged_game["white_ident"]:
+        print("recived move,",)
+        if event["ident"] == game_obj["white_ident"]:
             user = "w"
-        elif event["ident"] == packaged_game["black_ident"]:
-            user = "b" 
-        print("based on ident the user is",user)
-        
-        if user is None:
+        elif event["ident"] == game_obj["black_ident"]:
+            user = "b"
+        else:
             await error(websocket,"No permission for moving this piece")
             continue
+        print("based on ident the user is",user)
         
         
         legal,pp = await execute_move(packaged_game,event,user)
@@ -144,11 +152,10 @@ async def play(websocket,join_key,player,connected):
             await error(websocket,pp)
             continue
         
-        packaged_game = pp
-
-
+        game_obj["game"] = pp
+        games[join_key] = game_obj
         
-        event = await generate_update_msg(packaged_game)
+        event = await generate_update_msg(games[join_key]["game"])
         
         broadcast(connected,json.dumps(event))
         
@@ -198,7 +205,7 @@ async def start_game(websocket):
         }
         await websocket.send(json.dumps(event))
          
-        await play(websocket,games[game_id],1,connected)
+        await play(websocket,game_id,connected)
 
     finally:
         print(f"game with id: {game_id} ended")
@@ -250,7 +257,7 @@ async def join_game(websocket,join_key):
          
         await replay(game_object["connected"],game_object["game"])
     
-        await play(websocket,join_key,2,game_object["connected"])
+        await play(websocket,join_key,game_object["connected"])
     
     finally:
         game_object["connected"].remove(websocket)
