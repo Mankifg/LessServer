@@ -1,0 +1,3 @@
+lessgame
+requests
+websockets
