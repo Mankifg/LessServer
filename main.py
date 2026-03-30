@@ -2,7 +2,7 @@ import requests
 import json
 import urllib.request
 import random
-from fastapi import FastAPI
+#from fastapi import FastAPI
 
 import functions
 import game_utils
