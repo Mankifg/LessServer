@@ -358,7 +358,7 @@ async def make_move(move=None, game_id=None, ident=None):
     }
 """
 async def main():
-    async with serve(handler, "localhost", 8001) as server:
+    async with serve(handler, "0.0.0.0", 8001) as server:
         print(1)
         await server.serve_forever()
 
